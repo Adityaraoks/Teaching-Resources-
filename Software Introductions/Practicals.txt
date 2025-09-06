@@ -1,0 +1,166 @@
+# Simulate Datasets ----
+
+set.seed(123)
+
+# Dataset 1: Crop Yield (cross-sectional)
+n1 <- 200
+Region <- factor(sample(c("North", "South", "East", "West"), n1, replace=TRUE))
+SoilQuality <- sample(1:3, n1, replace=TRUE)
+FarmerEdu <- round(rnorm(n1, 10, 3))
+Fertilizer <- round(rnorm(n1, 120, 30))
+Irrigation <- round(rnorm(n1, 300, 80))
+SeedRate <- round(rnorm(n1, 80, 10))
+Income <- round(rnorm(n1, 150000, 20000))
+AdoptTech <- rbinom(n1, 1, plogis(-2 + 0.1*FarmerEdu + 0.00001*Income + 0.3*SoilQuality))
+Yield <- 15 + 0.08*Fertilizer + 0.04*Irrigation + 0.12*SeedRate + 2*SoilQuality +
+  0.2*FarmerEdu + 3*AdoptTech +
+  ifelse(Region=="North", 1, ifelse(Region=="South", -1, 0)) +
+  rnorm(n1, 0, 5)
+
+agri1 <- data.frame(Yield, Fertilizer, Irrigation, SeedRate, SoilQuality=factor(SoilQuality),
+                    FarmerEdu, Region, Income, AdoptTech=factor(AdoptTech))
+
+# Dataset 2: Panel Milk Yield (panel data)
+n_farms <- 50
+years <- 2018:2022
+n2 <- n_farms * length(years)
+FarmID <- rep(1:n_farms, each=length(years))
+Year <- rep(years, n_farms)
+Breed <- rbinom(n_farms, 1, 0.5)
+Breed_panel <- rep(Breed, each=length(years))
+FarmerAge <- rep(round(rnorm(n_farms, 45, 8)), each=length(years))
+Feed <- round(rnorm(n2, 18, 3))
+VetVisits <- rpois(n2, 3)
+Rainfall <- round(rnorm(n2, 900, 100))
+AdoptAI <- rbinom(n2, 1, plogis(-1 + 0.05*Feed + 0.2*Breed_panel))
+MilkYield <- 10 + 0.5*Feed + 0.8*Breed_panel + 0.3*VetVisits + 0.01*Rainfall +
+  1.5*AdoptAI + 0.02*FarmerAge + rnorm(n2, 0, 2)
+
+agri2 <- data.frame(FarmID=factor(FarmID), Year, MilkYield, Feed, VetVisits,
+                    Breed=factor(Breed_panel), FarmerAge, AdoptAI=factor(AdoptAI), Rainfall)
+
+# Save datasets for use
+write.csv(agri1, "agri1.csv", row.names=FALSE)
+write.csv(agri2, "agri2.csv", row.names=FALSE)
+
+# PRACTICALS: ANSWERS ----
+
+# Unit 1
+# 1. Regression: Yield ~ Fertilizer + Irrigation + SeedRate + SoilQuality
+m1 <- lm(Yield ~ Fertilizer + Irrigation + SeedRate + SoilQuality, data=agri1)
+summary(m1)
+
+# 2. Diagnostic plots
+par(mfrow=c(2,2)); plot(m1)
+
+# 3. MilkYield ~ Feed + VetVisits + Breed
+m2 <- lm(MilkYield ~ Feed + VetVisits + Breed, data=agri2)
+summary(m2)
+
+# Unit 2
+# 1. Correlation matrix
+cor(agri1[,c("Fertilizer","Irrigation","SeedRate")])
+
+# 2. VIF
+library(car)
+vif(m1)
+
+# 3. Add FertIrrig
+agri1$FertIrrig <- agri1$Fertilizer + 0.8*agri1$Irrigation
+m1b <- lm(Yield ~ Fertilizer + Irrigation + SeedRate + SoilQuality + FertIrrig, data=agri1)
+vif(m1b)
+summary(m1b)
+
+# Unit 3
+# 1. Residual plots
+plot(fitted(m1), resid(m1), main="Residuals vs Fitted")
+plot(agri1$Fertilizer, resid(m1), main="Residuals vs Fertilizer")
+
+# 2. Breusch-Pagan and White tests
+library(lmtest)
+bptest(m1)
+library(skedastic)
+white_lm(m1)
+
+# 3. Log transformation
+m1_log <- lm(log(Yield) ~ Fertilizer + Irrigation + SeedRate + SoilQuality, data=agri1)
+plot(fitted(m1_log), resid(m1_log), main="Residuals of log model")
+
+# Unit 4
+# 1. Residuals by year for a farm
+farm1 <- subset(agri2, FarmID==1)
+m3 <- lm(MilkYield ~ Feed + VetVisits + Year, data=farm1)
+plot(farm1$Year, resid(m3), type='b')
+
+# 2. Durbin-Watson
+dwtest(m3)
+
+# 3. Simulate AR(1) errors
+set.seed(123)
+n <- nrow(farm1)
+rho <- 0.7
+e <- arima.sim(model=list(ar=rho), n=n)
+MilkYield_ar1 <- 10 + 0.5*farm1$Feed + 0.8*as.numeric(farm1$Breed) + 0.3*farm1$VetVisits + e
+summary(lm(MilkYield_ar1 ~ Feed + VetVisits + Breed, data=farm1))
+
+# Unit 5
+# 1. Omitted variable
+m4 <- lm(Yield ~ Fertilizer, data=agri1)
+library(lmtest)
+resettest(m4, power=2:3)
+summary(m4)
+
+# 2. Omitted Feed in MilkYield
+m5 <- lm(MilkYield ~ VetVisits + Breed, data=agri2)
+summary(m5)
+
+# 3. Quadratic term for Fertilizer
+m6 <- lm(Yield ~ Fertilizer + I(Fertilizer^2) + Irrigation + SeedRate + SoilQuality, data=agri1)
+summary(m6)
+
+# Unit 6
+# 1. Outliers and leverage
+plot(hatvalues(m1), main="Leverage")
+plot(cooks.distance(m1), main="Cook's Distance")
+
+# 2. Simulate missing values
+agri1_na <- agri1
+set.seed(42)
+agri1_na$Yield[sample(1:n1, 10)] <- NA
+summary(agri1_na$Yield)
+# Handling: mean imputation
+agri1_na$Yield_imp <- ifelse(is.na(agri1_na$Yield), mean(agri1_na$Yield, na.rm=TRUE), agri1_na$Yield)
+
+# 3. Non-normality
+hist(resid(m1), breaks=20)
+shapiro.test(resid(m1))
+# If non-normal, try log(Yield)
+
+# Unit 7
+# 1. Dummy variables
+m7 <- lm(Yield ~ Fertilizer + Irrigation + SeedRate + SoilQuality + Region, data=agri1)
+summary(m7)
+
+# 2. Breed and AdoptAI in MilkYield
+m8 <- lm(MilkYield ~ Feed + VetVisits + Breed + AdoptAI, data=agri2)
+summary(m8)
+
+# 3. Logit for AdoptTech
+agri1$AdoptTechNum <- as.numeric(as.character(agri1$AdoptTech))
+logit1 <- glm(AdoptTechNum ~ FarmerEdu + Income + Region, data=agri1, family=binomial)
+summary(logit1)
+
+# Unit 8
+# 1. Simultaneous system: Yield and AdoptTech
+# First stage: regress AdoptTech on exogenous vars
+adopt1 <- glm(AdoptTechNum ~ Fertilizer + Irrigation + SeedRate + SoilQuality + FarmerEdu + Region, data=agri1, family=binomial)
+agri1$AdoptTechHat <- fitted(adopt1)
+# Second stage: 2SLS for Yield
+library(AER)
+iv1 <- ivreg(Yield ~ Fertilizer + Irrigation + SeedRate + SoilQuality + AdoptTechNum | Fertilizer + Irrigation + SeedRate + SoilQuality + AdoptTechHat, data=agri1)
+summary(iv1)
+
+# 2. Identification: check order condition (by hand, see assignment)
+
+# Save workspace
+save.image("practicals_agriculture_workspace.RData")

@@ -1,0 +1,98 @@
+# ------------------------------------------
+# Klein's Model I: SEM, IV, 2SLS, and 3SLS
+# ------------------------------------------
+
+# 1. Load required packages
+install.packages("AER")         # For KleinI data and ivreg
+install.packages("systemfit")   # For 2SLS and 3SLS
+library(AER)
+library(systemfit)
+
+# 2. Load Klein's Model I data
+data("KleinI")
+head(KleinI)
+# Variables include: year, C (consumption), P (profits), W (wage bill), I (investment),
+# K (capital stock), X (output), Wg (other wage bill), G (govt expenditure)
+
+# 3. Specify the structural equations (as in Gujarati Table 20.5/20.6)
+# Equations:
+# C_t = a0 + a1*P_t + a2*Wg_t + a3*P_{t-1} + u1_t
+# I_t = b0 + b1*P_t + b2*P_{t-1} + b3*K_{t-1} + u2_t
+# W_t = c0 + c1*X_t + c2*X_{t-1} + c3*t + u3_t
+
+# For lagged variables, create them:
+KleinI$P_1 = c(NA, KleinI$P[-nrow(KleinI)])      # P_{t-1}
+KleinI$K_1 = c(NA, KleinI$K[-nrow(KleinI)])      # K_{t-1}
+KleinI$X_1 = c(NA, KleinI$X[-nrow(KleinI)])      # X_{t-1}
+KleinI$t = 1:nrow(KleinI)
+
+# Remove first row (lagged vars are NA)
+klein <- na.omit(KleinI)
+
+# 4. OLS estimation of each equation (ignoring simultaneity)
+ols_C <- lm(C ~ P + Wg + P_1, data=klein)
+ols_I <- lm(I ~ P + P_1 + K_1, data=klein)
+ols_W <- lm(W ~ X + X_1 + t, data=klein)
+
+summary(ols_C)
+summary(ols_I)
+summary(ols_W)
+# Note: OLS is inconsistent for equations with endogenous regressors.
+
+# 5. IV/2SLS estimation for the consumption equation
+# Endogenous regressor: P (profits)
+# Instruments: Wg, P_1, K_1, X, X_1, t, G (all exogenous in the system)
+iv_C <- ivreg(C ~ P + Wg + P_1 | Wg + P_1 + K_1 + X + X_1 + t + G, data=klein)
+summary(iv_C)
+
+# 6. 2SLS estimation of the full system (all three equations)
+# Prepare the system of equations for systemfit
+eqC <- C ~ P + Wg + P_1
+eqI <- I ~ P + P_1 + K_1
+eqW <- W ~ X + X_1 + t
+
+# List of equations
+eqSystem <- list(consumption = eqC, investment = eqI, wage = eqW)
+
+# List all exogenous variables for instruments
+inst <- ~ Wg + P_1 + K_1 + X + X_1 + t + G
+
+# 2SLS estimation (equation-by-equation, but using systemfit for joint estimation)
+fit_2sls <- systemfit(eqSystem, method="2SLS", inst=inst, data=klein)
+summary(fit_2sls)
+
+# 7. 3SLS estimation (exploiting cross-equation error correlation)
+fit_3sls <- systemfit(eqSystem, method="3SLS", inst=inst, data=klein)
+summary(fit_3sls)
+
+# 8. Comparison of estimates
+cat("\n--- OLS Estimates (Consumption) ---\n")
+print(coef(ols_C))
+cat("\n--- IV/2SLS Estimates (Consumption) ---\n")
+print(coef(iv_C))
+cat("\n--- 2SLS System Estimates ---\n")
+print(coef(fit_2sls))
+cat("\n--- 3SLS System Estimates ---\n")
+print(coef(fit_3sls))
+
+# 9. Residual correlation matrix (shows why 3SLS is more efficient)
+cor(residuals(fit_2sls))
+
+# 10. Interpretation:
+# - OLS is biased for equations with endogenous regressors (like P in C and I equations).
+# - IV/2SLS corrects for endogeneity using instruments.
+# - 3SLS is more efficient than 2SLS if errors across equations are correlated.
+# - Use summary() and coefficients to interpret the economic meaning.
+
+# 11. Optional: Joint hypothesis testing (e.g., are coefficients on lagged variables zero in all equations?)
+# Example: Test if all lagged variables have zero coefficients
+Rmat <- rbind(
+  c(0,0,0,1,0,0,0,0,0), # P_1 in C
+  c(0,1,0,0,0,0,0,0,0), # P in I
+  c(0,0,1,0,0,0,0,0,0), # Wg in C
+  c(0,0,0,0,0,1,0,0,0)  # X_1 in W
+)
+rvec <- c(0,0,0,0)
+linearHypothesis(fit_3sls, Rmat, rvec)
+
+# End of script

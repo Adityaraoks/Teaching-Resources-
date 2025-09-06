@@ -1,0 +1,54 @@
+# Impact of Microcredit on Farm Productivity: IV Example
+
+# 1. Load required packages
+if (!require(AER)) install.packages("AER")
+if (!require(haven)) install.packages("haven") # for reading .dta files if needed
+if (!require(dplyr)) install.packages("dplyr")
+library(AER)
+library(dplyr)
+
+# 2. Load the data (example: replace with your actual file path)
+# malawi <- read_dta("path_to_file/household.dta")
+# For illustration, we'll simulate a small dataset with similar structure:
+set.seed(123)
+n <- 500
+malawi <- data.frame(
+  prod = rnorm(n, 1000, 200),
+  credit = rbinom(n, 1, 0.3),
+  dist = runif(n, 0, 20),
+  land = runif(n, 1, 10),
+  labor = rnorm(n, 50, 10),
+  age = rnorm(n, 45, 10),
+  edu = rpois(n, 5),
+  hhsize = rpois(n, 6)
+)
+# In practice, use the real data from the World Bank Microdata Library
+
+# 3. Data exploration
+summary(malawi)
+table(malawi$credit)
+
+# 4. OLS estimation (may be biased)
+ols <- lm(prod ~ credit + land + labor + edu + age, data = malawi)
+summary(ols)
+
+# 5. IV/2SLS estimation: Use 'dist' as instrument for 'credit'
+iv <- ivreg(prod ~ credit + land + labor + edu + age | dist + land + labor + edu + age, data = malawi)
+summary(iv)
+
+# 6. First-stage regression: Check relevance of instrument
+fs <- lm(credit ~ dist + land + labor + edu + age, data = malawi)
+summary(fs)
+# F-statistic for 'dist' should be > 10 for a strong instrument
+
+# 7. (Optional) Sargan-Hansen test if >1 instrument (not shown here)
+
+# 8. Compare OLS and IV estimates for credit
+cat("OLS coefficient for credit:", coef(ols)["credit"], "\n")
+cat("IV coefficient for credit:", coef(iv)["credit"], "\n")
+
+# 9. Interpretation
+cat("If the IV coefficient is significant and positive, microcredit access increases productivity, supporting a causal interpretation.\n")
+
+# 10. Policy implication
+cat("Policy: Expanding microfinance access (e.g., by reducing distance to institutions) may boost agricultural productivity.\n")

@@ -1,0 +1,94 @@
+# Assignments: Answers
+
+# Unit 1
+# 1. Add Experience
+set.seed(100)
+agri1$Experience <- round(runif(n1, 5, 35))
+m1_exp <- lm(Yield ~ Fertilizer + Irrigation + SeedRate + SoilQuality + Experience, data=agri1)
+summary(m1_exp)
+
+# 2. Fixed effects model for MilkYield
+library(lme4)
+m2_fe <- lmer(MilkYield ~ Feed + VetVisits + Breed + (1|FarmID), data=agri2)
+summary(m2_fe)
+
+# Unit 2
+# 1. FeedPlus
+agri2$FeedPlus <- agri2$Feed + 0.9*agri2$VetVisits
+m2b <- lm(MilkYield ~ Feed + VetVisits + Breed + FeedPlus, data=agri2)
+library(car)
+vif(m2b)
+
+# 2. Remedies: drop variables, combine, ridge regression, etc.
+
+# Unit 3
+# 1. Robust SE for heteroscedasticity
+library(sandwich)
+library(lmtest)
+m2_het <- lm(MilkYield ~ Feed + VetVisits + Breed, data=agri2)
+coeftest(m2_het, vcov=vcovHC(m2_het, type="HC1"))
+
+# 2. Impact: compare t-values from robust and classical SE
+
+# Unit 4
+# 1. GLS model for autocorrelation
+library(nlme)
+m3_gls <- gls(MilkYield ~ Feed + VetVisits + Year, data=farm1, correlation=corAR1())
+summary(m3_gls)
+
+# 2. Discuss: standard errors are corrected for autocorrelation
+
+# Unit 5
+# 1. Simulate measurement error
+set.seed(101)
+agri1$Fertilizer_me <- agri1$Fertilizer + rnorm(n1, 0, 10)
+m5_me <- lm(Yield ~ Fertilizer_me + Irrigation + SeedRate + SoilQuality, data=agri1)
+summary(m5_me)
+
+# 2. AIC/BIC for different models
+AIC(m1); BIC(m1)
+AIC(m6); BIC(m6)
+
+# Unit 6
+# 1. Simulate endogeneity
+set.seed(102)
+u <- rnorm(n1)
+agri1$Fertilizer_endog <- agri1$Fertilizer + 0.5*u
+agri1$Yield_endog <- 15 + 0.08*agri1$Fertilizer_endog + 0.04*agri1$Irrigation + 0.12*agri1$SeedRate +
+  2*as.numeric(agri1$SoilQuality) + 0.2*agri1$FarmerEdu + 3*as.numeric(agri1$AdoptTech) + u
+# IV estimation
+library(AER)
+iv2 <- ivreg(Yield_endog ~ Fertilizer_endog + Irrigation + SeedRate + SoilQuality | Irrigation + SeedRate + SoilQuality + Fertilizer, data=agri1)
+summary(iv2)
+
+# 2. Hierarchical structure
+agri2$District <- factor(rep(1:10, each=25))
+m6_mixed <- lmer(MilkYield ~ Feed + VetVisits + Breed + (1|District/FarmID), data=agri2)
+summary(m6_mixed)
+
+# Unit 7
+# 1. Probit and LPM for AdoptTech
+probit1 <- glm(AdoptTechNum ~ FarmerEdu + Income + Region, data=agri1, family=binomial(link="probit"))
+summary(probit1)
+lpm1 <- lm(AdoptTechNum ~ FarmerEdu + Income + Region, data=agri1)
+summary(lpm1)
+
+# 2. Logit for AdoptAI
+agri2$AdoptAINum <- as.numeric(as.character(agri2$AdoptAI))
+logit2 <- glm(AdoptAINum ~ Feed + VetVisits + Breed + FarmerAge, data=agri2, family=binomial)
+summary(logit2)
+library(margins)
+margins(logit2)
+
+# Unit 8
+# 1. Simultaneous system for MilkYield and AdoptAI (specify, estimate using 2SLS)
+# First stage: regress AdoptAI on exogenous vars
+adopt2 <- glm(AdoptAINum ~ Feed + VetVisits + Breed + FarmerAge + Rainfall, data=agri2, family=binomial)
+agri2$AdoptAIHat <- fitted(adopt2)
+iv3 <- ivreg(MilkYield ~ Feed + VetVisits + Breed + AdoptAINum | Feed + VetVisits + Breed + AdoptAIHat, data=agri2)
+summary(iv3)
+
+# 2. Discuss identification (by hand)
+
+# Save workspace
+save.image("assignments_agriculture_workspace.RData")

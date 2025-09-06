@@ -1,0 +1,103 @@
+# ================================================
+# Assignment: Simultaneous Equation and IV Estimation
+# Using Agricultural Economics Data (Fertilizer)
+# ================================================
+
+# 1. Load required packages ----
+# Install if not already installed
+if (!require(AER)) install.packages("AER")
+if (!require(systemfit)) install.packages("systemfit")
+if (!require(GGally)) install.packages("GGally")
+if (!require(car)) install.packages("car")
+library(AER)
+library(systemfit)
+library(GGally)
+library(car)
+
+# 2. Load the Fertilizer data ----
+data("Fertilizer", package = "AER")
+df <- Fertilizer
+str(df)
+head(df)
+
+# 3. Data Exploration ----
+# Summary statistics
+summary(df)
+
+# Pairwise scatterplots for main variables
+main_vars <- c("output", "fertilizer", "labour", "seed", "land", "manure", "area")
+pairs(df[main_vars], main = "Pairwise Scatterplots: Fertilizer Data")
+# For a nicer plot, use GGally::ggpairs
+# ggpairs(df[main_vars])
+
+# 4. OLS Estimation: Output equation ----
+# Regress output on fertilizer and other exogenous inputs
+ols_out <- lm(output ~ fertilizer + labour + seed + land, data = df)
+summary(ols_out)
+
+# Why OLS may be biased:
+# Fertilizer use may be endogenous: unobserved factors (e.g., soil quality, farmer skill)
+# can affect both fertilizer use and output, leading to correlation between fertilizer and the error term.
+
+# 5. IV/2SLS Estimation: Output equation ----
+# Instruments for fertilizer: manure and area (assumed exogenous, affect fertilizer but not output directly)
+iv_out <- ivreg(output ~ fertilizer + labour + seed + land | manure + area + labour + seed + land, data = df)
+summary(iv_out)
+
+# Compare OLS and IV/2SLS results for fertilizer effect
+cat("OLS coefficient for fertilizer:", coef(ols_out)["fertilizer"], "\n")
+cat("2SLS/IV coefficient for fertilizer:", coef(iv_out)["fertilizer"], "\n")
+
+# 6. System Estimation: 2SLS and 3SLS ----
+# Specify the two equations:
+# Equation 1: output ~ fertilizer + labour + seed + land
+# Equation 2: fertilizer ~ output + manure + area
+
+eq1 <- output ~ fertilizer + labour + seed + land
+eq2 <- fertilizer ~ output + manure + area
+
+# List of equations for systemfit
+eqSystem <- list(output_eq = eq1, fertilizer_eq = eq2)
+
+# List of instruments: all exogenous variables in the system
+inst <- ~ manure + area + labour + seed + land
+
+# 2SLS system estimation
+fit_2sls <- systemfit(eqSystem, method = "2SLS", inst = inst, data = df)
+summary(fit_2sls)
+
+# 3SLS system estimation (accounts for correlated errors across equations)
+fit_3sls <- systemfit(eqSystem, method = "3SLS", inst = inst, data = df)
+summary(fit_3sls)
+
+# 7. Interpretation and Comparison ----
+cat("\n--- OLS (output equation) ---\n")
+print(coef(ols_out))
+cat("\n--- IV/2SLS (output equation) ---\n")
+print(coef(iv_out))
+cat("\n--- 2SLS System Estimates ---\n")
+print(coef(fit_2sls))
+cat("\n--- 3SLS System Estimates ---\n")
+print(coef(fit_3sls))
+
+# 8. Test for error correlation between equations ----
+# Justifies use of 3SLS if errors are correlated
+resids <- residuals(fit_2sls)
+cor_resid <- cor(resids)
+cat("\nResidual correlation matrix:\n")
+print(cor_resid)
+
+# 9. Robustness: Try alternative instruments (optional) ----
+# For example, use only area as instrument for fertilizer
+iv_out_alt <- ivreg(output ~ fertilizer + labour + seed + land | area + labour + seed + land, data = df)
+summary(iv_out_alt)
+
+# 10. Policy Implications
+cat("\nInterpretation:\n")
+cat("If the 2SLS/3SLS coefficient for fertilizer is significant and positive, this suggests that increasing fertilizer use causally increases output, after accounting for endogeneity.\n")
+cat("Policy implication: Subsidizing or improving access to fertilizer can enhance grain productivity, provided instruments are valid.\n")
+
+# 11. Save results (optional)
+# write.csv(df, "Fertilizer_results.csv", row.names = FALSE)
+
+# END OF ASSIGNMENT SCRIPT
